@@ -84,4 +84,4 @@ artifacts:
 cache:
   paths:
     - 'infrastructure/cdk/node_modules/**/*'
-    - 'services/interview/.cache/**/*' 
+    - 'services/interview/.cache/**/*'
