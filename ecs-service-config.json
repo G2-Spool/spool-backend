@@ -1,0 +1,40 @@
+{
+    "serviceName": "spool-interview-service",
+    "cluster": "spool-mvp",
+    "taskDefinition": "spool-interview-task",
+    "desiredCount": 1,
+    "launchType": "FARGATE",
+    "networkConfiguration": {
+        "awsvpcConfiguration": {
+            "subnets": [
+                "subnet-1b789f7d",
+                "subnet-0fb16901"
+            ],
+            "securityGroups": [
+                "sg-b969c293"
+            ],
+            "assignPublicIp": "ENABLED"
+        }
+    },
+    "loadBalancers": [],
+    "enableExecuteCommand": true,
+    "deploymentConfiguration": {
+        "maximumPercent": 200,
+        "minimumHealthyPercent": 100,
+        "deploymentCircuitBreaker": {
+            "enable": true,
+            "rollback": true
+        }
+    },
+    "placementStrategy": [],
+    "tags": [
+        {
+            "key": "Environment",
+            "value": "production"
+        },
+        {
+            "key": "Service",
+            "value": "interview"
+        }
+    ]
+}

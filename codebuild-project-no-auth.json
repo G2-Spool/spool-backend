@@ -5,10 +5,7 @@
         "type": "GITHUB",
         "location": "https://github.com/G2-Spool/spool-backend.git",
         "gitCloneDepth": 1,
-        "buildspec": "buildspec.yml",
-        "auth": {
-            "type": "OAUTH"
-        }
+        "buildspec": "buildspec.yml"
     },
     "sourceVersion": "main",
     "artifacts": {
