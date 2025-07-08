@@ -34,7 +34,7 @@ phases:
           npm install
           npx cdk deploy SpoolEcsStack --require-approval never
           cd ../..
-        fi
+        # fi
       
       # Build interview service
       - echo Building the Docker image...
@@ -66,7 +66,7 @@ phases:
             # --cluster $ECS_CLUSTER_NAME \
             # --service $ECS_SERVICE_LANGFLOW \
             # --force-new-deployment
-        fi
+        # fi
       
       # Wait for services to stabilize
       # - echo Waiting for services to stabilize...
