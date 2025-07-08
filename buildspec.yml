@@ -34,7 +34,7 @@ phases:
           npm install
           npx cdk deploy SpoolEcsStack --require-approval never
           cd ../..
-        fi
+        # fi
       
       # Build interview service
       - echo Building the Docker image...
@@ -51,26 +51,26 @@ phases:
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       
       # Update ECS service with new image
-      - echo Updating ECS service...
-      - |
-        aws ecs update-service \
-          --cluster $ECS_CLUSTER_NAME \
-          --service $ECS_SERVICE_INTERVIEW \
-          --force-new-deployment
+      # - echo Updating ECS service...
+      # - |
+        # aws ecs update-service \
+          # --cluster $ECS_CLUSTER_NAME \
+          # --service $ECS_SERVICE_INTERVIEW \
+          # --force-new-deployment
       
       # Update Langflow service if needed
-      - |
-        if [ -n "$(git log -1 --pretty=%B | grep '\[langflow\]')" ]; then
-          echo "Langflow update requested, restarting service..."
-          aws ecs update-service \
-            --cluster $ECS_CLUSTER_NAME \
-            --service $ECS_SERVICE_LANGFLOW \
-            --force-new-deployment
-        fi
+      # - |
+        # if [ -n "$(git log -1 --pretty=%B | grep '\[langflow\]')" ]; then
+          # echo "Langflow update requested, restarting service..."
+          # aws ecs update-service \
+            # --cluster $ECS_CLUSTER_NAME \
+            # --service $ECS_SERVICE_LANGFLOW \
+            # --force-new-deployment
+        # fi
       
       # Wait for services to stabilize
-      - echo Waiting for services to stabilize...
-      - aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_INTERVIEW
+      # - echo Waiting for services to stabilize...
+      # - aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_INTERVIEW
       
       # Store build artifacts
       - echo Writing image definitions file...
