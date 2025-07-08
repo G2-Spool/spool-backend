@@ -1,0 +1,31 @@
+{
+  "name": "spool-backend",
+  "version": "1.0.0",
+  "description": "Backend services for Spool learning companion",
+  "private": true,
+  "workspaces": [
+    "infrastructure/cdk"
+  ],
+  "scripts": {
+    "dev": "docker-compose -f docker-compose.dev.yml up",
+    "dev:build": "docker-compose -f docker-compose.dev.yml up --build",
+    "dev:down": "docker-compose -f docker-compose.dev.yml down",
+    "cdk": "cd infrastructure/cdk && cdk",
+    "deploy": "cd infrastructure/cdk && cdk deploy",
+    "synth": "cd infrastructure/cdk && cdk synth",
+    "test:local": "cd services/interview && python -m pytest",
+    "lint": "cd services/interview && python -m flake8 src/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/spool-backend.git"
+  },
+  "keywords": [
+    "education",
+    "voice",
+    "ai",
+    "learning"
+  ],
+  "author": "Your Team",
+  "license": "UNLICENSED"
+}
