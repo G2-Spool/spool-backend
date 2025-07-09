@@ -8,10 +8,15 @@ from fastapi.responses import JSONResponse
 import numpy as np
 import httpx
 from datetime import datetime
+import sys
+import traceback
 
 from .voice_agent import VoiceAgent
 from .langflow_client import LangflowClient
 from .models import InterviewSession, InterestData
+
+# Configure Python path
+sys.path.insert(0, '/app/src')
 
 app = FastAPI(title="Spool Interview Service")
 
@@ -24,9 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize clients
-langflow_client = LangflowClient()
-voice_agent = VoiceAgent()
+# Initialize clients with error handling
+langflow_client = None
+voice_agent = None
 
 # Store active sessions
 active_sessions: Dict[str, InterviewSession] = {}
@@ -35,44 +40,88 @@ active_sessions: Dict[str, InterviewSession] = {}
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    # Check Langflow health
-    if not await langflow_client.health_check():
-        print("Warning: Langflow service is not responding")
+    global langflow_client, voice_agent
+    
+    try:
+        print("Starting up Spool Interview Service...")
+        
+        # Initialize LangFlow client
+        langflow_client = LangflowClient()
+        print("LangFlow client initialized")
+        
+        # Initialize voice agent
+        voice_agent = VoiceAgent()
+        print("Voice agent initialized")
+        
+        # Check Langflow health
+        if langflow_client and not await langflow_client.health_check():
+            print("Warning: Langflow service is not responding")
+        
+        print("Startup completed successfully!")
+        
+    except Exception as e:
+        print(f"Error during startup: {e}")
+        traceback.print_exc()
+        # Don't raise - let the service start even if some components fail
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    langflow_healthy = await langflow_client.health_check()
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "services": {
-            "interview": "healthy",
-            "langflow": "healthy" if langflow_healthy else "unhealthy"
+    try:
+        langflow_healthy = False
+        if langflow_client:
+            try:
+                langflow_healthy = await langflow_client.health_check()
+            except Exception as e:
+                print(f"Langflow health check failed: {e}")
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "services": {
+                "interview": "healthy",
+                "langflow": "healthy" if langflow_healthy else "unhealthy",
+                "voice_agent": "healthy" if voice_agent else "unhealthy"
+            }
         }
-    }
+    except Exception as e:
+        print(f"Health check error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {"message": "Spool Interview Service is running", "version": "1.0.0"}
 
 
 @app.post("/api/interview/start")
 async def start_interview(user_id: str):
     """Start a new interview session"""
-    session_id = f"interview_{user_id}_{datetime.utcnow().timestamp()}"
-    
-    session = InterviewSession(
-        session_id=session_id,
-        user_id=user_id,
-        started_at=datetime.utcnow(),
-        interests=[]
-    )
-    
-    active_sessions[session_id] = session
-    
-    return {
-        "session_id": session_id,
-        "status": "started",
-        "message": "Interview session started. Connect via WebSocket to begin voice interaction."
-    }
+    try:
+        session_id = f"interview_{user_id}_{datetime.utcnow().timestamp()}"
+        
+        session = InterviewSession(
+            session_id=session_id,
+            user_id=user_id,
+            started_at=datetime.utcnow(),
+            interests=[]
+        )
+        
+        active_sessions[session_id] = session
+        
+        return {
+            "session_id": session_id,
+            "status": "started",
+            "message": "Interview session started. Connect via WebSocket to begin voice interaction."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws/interview/{session_id}")
@@ -96,34 +145,50 @@ async def websocket_interview(websocket: WebSocket, session_id: str):
             "message": "Hi! I'm here to learn about your interests and hobbies. Let's have a conversation about what you enjoy doing!"
         })
         
-        # Handle voice interaction
-        await voice_agent.handle_interview_session(
-            websocket=websocket,
-            session=session,
-            on_interest_detected=lambda interest: handle_interest_detected(session, interest)
-        )
+        # Handle voice interaction if voice agent is available
+        if voice_agent:
+            await voice_agent.handle_interview_session(
+                websocket=websocket,
+                session=session,
+                on_interest_detected=lambda interest: handle_interest_detected(session, interest)
+            )
+        else:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Voice agent not available"
+            })
         
     except WebSocketDisconnect:
         print(f"Session {session_id} disconnected")
     except Exception as e:
         print(f"Error in session {session_id}: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "message": str(e)
-        })
+        traceback.print_exc()
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except:
+            pass  # WebSocket might be closed
     finally:
         # Save session data
-        await save_session_data(session)
+        try:
+            await save_session_data(session)
+        except Exception as e:
+            print(f"Error saving session data: {e}")
 
 
 async def handle_interest_detected(session: InterviewSession, interest: str):
     """Handle when a new interest is detected"""
-    if interest not in [i.name for i in session.interests]:
-        session.interests.append(InterestData(
-            name=interest,
-            detected_at=datetime.utcnow()
-        ))
-        print(f"New interest detected: {interest}")
+    try:
+        if interest not in [i.name for i in session.interests]:
+            session.interests.append(InterestData(
+                name=interest,
+                detected_at=datetime.utcnow()
+            ))
+            print(f"New interest detected: {interest}")
+    except Exception as e:
+        print(f"Error handling interest detection: {e}")
 
 
 async def save_session_data(session: InterviewSession):
@@ -145,9 +210,12 @@ async def save_session_data(session: InterviewSession):
             "duration": (datetime.utcnow() - session.started_at).total_seconds()
         }
         
-        # Send to Langflow for processing
-        result = await langflow_client.process_interview(interview_data)
-        print(f"Interview data processed: {result}")
+        # Send to Langflow for processing if available
+        if langflow_client:
+            result = await langflow_client.process_interview(interview_data)
+            print(f"Interview data processed: {result}")
+        else:
+            print("LangFlow client not available, skipping processing")
         
     except Exception as e:
         print(f"Error saving session data: {e}")
@@ -198,4 +266,5 @@ async def end_interview(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+    print("Starting Spool Interview Service...")
     uvicorn.run(app, host="0.0.0.0", port=8080) 

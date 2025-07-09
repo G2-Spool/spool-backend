@@ -20,7 +20,7 @@ COPY src/ ./src/
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application

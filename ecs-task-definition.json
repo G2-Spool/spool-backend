@@ -4,16 +4,16 @@
     "requiresCompatibilities": [
         "FARGATE"
     ],
-    "cpu": "256",
-    "memory": "512",
+    "cpu": "512",
+    "memory": "1024",
     "executionRoleArn": "arn:aws:iam::560281064968:role/ecsTaskExecutionRole",
     "taskRoleArn": "arn:aws:iam::560281064968:role/ecsTaskRole",
     "containerDefinitions": [
         {
             "name": "interview-service",
             "image": "560281064968.dkr.ecr.us-east-1.amazonaws.com/spool-interview:latest",
-            "cpu": 256,
-            "memory": 512,
+            "cpu": 512,
+            "memory": 1024,
             "essential": true,
             "portMappings": [
                 {
@@ -27,14 +27,22 @@
                     "curl -f http://localhost:8080/health || exit 1"
                 ],
                 "interval": 30,
-                "timeout": 5,
+                "timeout": 10,
                 "retries": 3,
-                "startPeriod": 60
+                "startPeriod": 90
             },
             "environment": [
                 {
                     "name": "PORT",
                     "value": "8080"
+                },
+                {
+                    "name": "PYTHONUNBUFFERED",
+                    "value": "1"
+                },
+                {
+                    "name": "PYTHONPATH",
+                    "value": "/app"
                 }
             ],
             "logConfiguration": {
