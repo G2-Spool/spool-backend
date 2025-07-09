@@ -14,9 +14,9 @@ echo "🔐 Logging in to ECR..."
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPOSITORY"
 
 # Step 2: Build the Docker image
-echo "🏗️ Building Docker image..."
+echo "🏗️ Building Docker image for linux/amd64 platform..."
 cd services/interview
-docker build -t "$ECR_REPOSITORY:$IMAGE_TAG" .
+docker buildx build --platform linux/amd64 -t "$ECR_REPOSITORY:$IMAGE_TAG" --load .
 
 # Step 3: Tag the image (already done in build)
 echo "🏷️ Image tagged as: $ECR_REPOSITORY:$IMAGE_TAG"

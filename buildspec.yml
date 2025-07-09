@@ -37,9 +37,10 @@ phases:
         fi
       
       # Build interview service
-      - echo Building the Docker image...
+      - echo Building the Docker image for linux/amd64...
       - cd services/interview
-      - docker build -t $REPOSITORY_URI:latest .
+      - docker buildx create --use --name multiarch-builder || docker buildx use multiarch-builder
+      - docker buildx build --platform linux/amd64 -t $REPOSITORY_URI:latest --load .
       - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
       - cd ../..
 
