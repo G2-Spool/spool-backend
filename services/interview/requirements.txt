@@ -10,6 +10,7 @@ aiofiles>=24.1.0
 aiortc>=1.11.0
 nest-asyncio>=1.6.0
 openai>=1.0.0
+langchain>=0.3.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
