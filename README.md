@@ -2,6 +2,8 @@
 
 Backend services for the Spool learning companion application, including the voice interview service and infrastructure as code.
 
+**Status:** ✅ Deployed to CodeBuild
+
 ## Architecture
 
 This repository contains:
