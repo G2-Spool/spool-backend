@@ -1,35 +1,27 @@
 import os
 import asyncio
-from typing import Callable, Optional, Dict
+from typing import Callable, Optional, Tuple
 import numpy as np
-from fastrtc import Stream, ReplyOnPause, AudioHandler, get_stt_model, get_tts_model
+from fastrtc import Stream, AudioHandler
 from langchain.chat_models import init_chat_model
-import json
 import httpx
+import json
+import re
 from datetime import datetime
 
 from .models import InterviewSession
-from .turn_credentials import get_turn_credentials
 
 
 class InterviewHandler(AudioHandler):
-    """Custom audio handler for interview conversations"""
+    """Audio handler for interview conversations using FastRTC"""
     
-    def __init__(
-        self,
-        session: InterviewSession,
-        stt_model,
-        tts_model,
-        llm_model,
-        on_interest_detected: Optional[Callable] = None,
-        api_base_url: str = "http://localhost:8080"
-    ):
+    def __init__(self, session: InterviewSession, on_interest_detected: Optional[Callable] = None):
+        super().__init__()
         self.session = session
-        self.stt_model = stt_model
-        self.tts_model = tts_model
-        self.llm_model = llm_model
         self.on_interest_detected = on_interest_detected
-        self.api_base_url = api_base_url
+        
+        # Initialize models
+        self.llm_model = init_chat_model("openai:gpt-4.1-nano-2025-04-14")
         
         # Interview context and prompts
         self.system_prompt = """You are a friendly interview assistant helping to learn about a student's interests and hobbies.
@@ -45,24 +37,23 @@ class InterviewHandler(AudioHandler):
         self.conversation_history = [
             {"role": "system", "content": self.system_prompt}
         ]
+        
+        # HTTP client for updating transcript
+        self.http_client = httpx.AsyncClient()
+        self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:8080")
     
-    async def process(self, audio: tuple[int, np.ndarray]) -> np.ndarray:
+    async def process(self, audio: Tuple[int, np.ndarray]) -> np.ndarray:
         """Process incoming audio and generate response"""
         try:
-            # Convert audio to text using STT
-            sample_rate, audio_data = audio
-            user_text = self.stt_model.stt((sample_rate, audio_data))
+            # Get STT and TTS models from stream
+            stt_model = self.stream.stt_model
+            tts_model = self.stream.tts_model
             
-            # Add to transcript
-            transcript_entry = {
-                "speaker": "user",
-                "text": user_text,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            self.session.transcript.append(transcript_entry)
+            # Convert audio to text
+            user_text = stt_model.stt(audio)
             
-            # Update transcript via API
-            await self._update_transcript(transcript_entry)
+            # Update transcript via REST API
+            await self._update_transcript("user_transcript", user_text)
             
             # Add to conversation history
             self.conversation_history.append({
@@ -79,6 +70,9 @@ class InterviewHandler(AudioHandler):
             for interest in interests:
                 if self.on_interest_detected:
                     await self.on_interest_detected(interest)
+                
+                # Send interest detection via REST
+                await self._update_transcript("interest_detected", interest=interest)
             
             # Clean response for TTS
             clean_response = self._clean_response_for_tts(response_text)
@@ -89,26 +83,17 @@ class InterviewHandler(AudioHandler):
                 "content": response_text
             })
             
-            # Add to transcript
-            assistant_entry = {
-                "speaker": "assistant",
-                "text": clean_response,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            self.session.transcript.append(assistant_entry)
-            
-            # Update transcript via API
-            await self._update_transcript(assistant_entry)
+            # Update assistant transcript
+            await self._update_transcript("assistant_transcript", clean_response)
             
             # Generate TTS audio
             audio_chunks = []
-            for audio_chunk in self.tts_model.stream_tts_sync(clean_response):
+            for audio_chunk in tts_model.stream_tts_sync(clean_response):
                 audio_chunks.append(audio_chunk)
             
-            # Combine audio chunks
+            # Combine and return audio
             if audio_chunks:
-                combined_audio = np.concatenate(audio_chunks)
-                return combined_audio
+                return np.concatenate(audio_chunks)
             else:
                 return np.array([], dtype=np.float32)
                 
@@ -117,11 +102,25 @@ class InterviewHandler(AudioHandler):
             # Return silence on error
             return np.zeros(16000, dtype=np.float32)  # 1 second of silence
     
+    async def _update_transcript(self, transcript_type: str, text: str = None, interest: str = None):
+        """Update transcript via REST API"""
+        try:
+            data = {"type": transcript_type}
+            if text:
+                data["text"] = text
+            if interest:
+                data["interest"] = interest
+            
+            await self.http_client.post(
+                f"{self.api_base_url}/api/interview/{self.session.session_id}/transcript",
+                json=data
+            )
+        except Exception as e:
+            print(f"Error updating transcript: {e}")
+    
     def _extract_interests(self, text: str) -> list[str]:
         """Extract interests marked with [INTEREST: name] from text"""
         interests = []
-        import re
-        
         pattern = r'\[INTEREST:\s*([^\]]+)\]'
         matches = re.findall(pattern, text)
         
@@ -134,8 +133,6 @@ class InterviewHandler(AudioHandler):
     
     def _clean_response_for_tts(self, text: str) -> str:
         """Remove markers and clean text for TTS"""
-        import re
-        
         # Remove [INTEREST: ...] markers
         text = re.sub(r'\[INTEREST:[^\]]+\]', '', text)
         
@@ -144,53 +141,44 @@ class InterviewHandler(AudioHandler):
         
         return text.strip()
     
-    async def _update_transcript(self, entry: Dict):
-        """Update transcript via REST API"""
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{self.api_base_url}/api/interview/{self.session.session_id}/transcript",
-                    json={"entry": entry}
-                )
-        except Exception as e:
-            print(f"Error updating transcript: {e}")
+    async def cleanup(self):
+        """Cleanup resources"""
+        await self.http_client.aclose()
 
 
 class VoiceAgent:
     def __init__(self):
         """Initialize the voice agent with STT, TTS, and LLM models"""
-        self.stt_model = get_stt_model()  # Moonshine
-        self.tts_model = get_tts_model()  # Kokoro
-        self.llm_model = init_chat_model("openai:gpt-4.1-nano-2025-04-14")
+        # Models are initialized within the Stream
+        pass
     
-    async def create_interview_stream(
-        self,
-        session: InterviewSession,
-        on_interest_detected: Optional[Callable] = None
-    ) -> Stream:
-        """Create an RTC stream for the interview session"""
+    def create_interview_stream(self, session: InterviewSession, on_interest_detected: Optional[Callable] = None) -> Stream:
+        """Create a FastRTC stream for the interview session"""
         
-        # Create custom handler for this interview
-        handler = InterviewHandler(
-            session=session,
-            stt_model=self.stt_model,
-            tts_model=self.tts_model,
-            llm_model=self.llm_model,
-            on_interest_detected=on_interest_detected
-        )
+        # Create the interview handler
+        handler = InterviewHandler(session, on_interest_detected)
         
-        # Get TURN credentials for this session
-        turn_config = get_turn_credentials(
-            username=session.user_id,
-            session_id=session.session_id
-        )
+        # Get TURN credentials
+        turn_server = os.getenv("TURN_SERVER", "turn.spool.education")
         
-        # Create the stream with ReplyOnPause wrapper and TURN configuration
+        # Create and configure the stream
         stream = Stream(
-            handler=ReplyOnPause(handler.process),
+            handler=handler,
             modality="audio",
-            mode="send-receive",
-            rtc_configuration=turn_config  # This includes both STUN and TURN servers
+            mode="duplex",
+            stt_model="moonshine-tiny",
+            tts_model="kokoro-tiny",
+            api_key=os.getenv("OPENAI_API_KEY"),
+            rtc_configuration={
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                    {
+                        "urls": [f"turn:{turn_server}:3478"],
+                        "username": "dynamic",  # Will be replaced by frontend with time-limited credentials
+                        "credential": "dynamic"
+                    }
+                ]
+            }
         )
         
         return stream

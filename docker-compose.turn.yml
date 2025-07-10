@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  coturn:
+    image: coturn/coturn:latest
+    container_name: spool-turn-server
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    environment:
+      - TURN_USER=spool
+      - TURN_PASSWORD=${TURN_SECRET:-spool-turn-secret-2024}
+      - EXTERNAL_IP=${EXTERNAL_IP:-127.0.0.1}
+    command: >
+      -n
+      --listening-port=3478
+      --external-ip=${EXTERNAL_IP:-127.0.0.1}
+      --realm=spool.education
+      --user=spool:${TURN_SECRET:-spool-turn-secret-2024}
+      --lt-cred-mech
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET:-spool-turn-secret-2024}
+      --log-file=stdout
+      --verbose
+    restart: unless-stopped

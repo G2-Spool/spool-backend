@@ -7,9 +7,16 @@ import * as efs from 'aws-cdk-lib/aws-efs';
 import * as servicediscovery from 'aws-cdk-lib/aws-servicediscovery';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2_integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
 
 export class SpoolEcsStack extends cdk.Stack {
+  public readonly interviewServiceUrl: string;
+  public readonly contentServiceUrl: string;
+  public readonly exerciseServiceUrl: string;
+  public readonly progressServiceUrl: string;
+
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
@@ -266,12 +273,11 @@ export class SpoolEcsStack extends cdk.Stack {
       },
     });
 
-    interviewService.registerLoadBalancerTargets({
+    // Register service with target group
+    interviewTargetGroup.addTarget(interviewService.loadBalancerTarget({
       containerName: 'interview',
       containerPort: 8080,
-      newTargetGroupId: 'InterviewECS',
-      targetGroupArn: interviewTargetGroup.targetGroupArn,
-    });
+    }));
 
     // Auto-scaling for Interview Service
     const interviewScaling = interviewService.autoScaleTaskCount({
@@ -298,15 +304,20 @@ export class SpoolEcsStack extends cdk.Stack {
       },
     });
 
-    langflowService.registerLoadBalancerTargets({
+    // Register service with target group
+    langflowTargetGroup.addTarget(langflowService.loadBalancerTarget({
       containerName: 'langflow',
       containerPort: 7860,
-      newTargetGroupId: 'LangflowECS',
-      targetGroupArn: langflowTargetGroup.targetGroupArn,
-    });
+    }));
 
     // Grant EFS permissions to Langflow
     langflowFileSystem.grantReadWrite(langflowTaskDefinition.taskRole);
+
+    // Set service URLs for API Gateway integration
+    this.interviewServiceUrl = alb.loadBalancerDnsName;
+    this.contentServiceUrl = alb.loadBalancerDnsName;  // Will be updated when content service is deployed
+    this.exerciseServiceUrl = alb.loadBalancerDnsName;  // Will be updated when exercise service is deployed
+    this.progressServiceUrl = alb.loadBalancerDnsName;  // Will be updated when progress service is deployed
 
     // Outputs
     new cdk.CfnOutput(this, 'AlbUrl', {
@@ -322,6 +333,30 @@ export class SpoolEcsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'LangflowEndpoint', {
       value: `http://${alb.loadBalancerDnsName}/langflow`,
       description: 'Langflow Service Endpoint',
+    });
+
+    new cdk.CfnOutput(this, 'InterviewServiceUrl', {
+      value: this.interviewServiceUrl,
+      description: 'Interview Service Load Balancer URL',
+      exportName: 'SpoolInterviewServiceUrl',
+    });
+
+    new cdk.CfnOutput(this, 'ContentServiceUrl', {
+      value: this.contentServiceUrl,
+      description: 'Content Service Load Balancer URL',
+      exportName: 'SpoolContentServiceUrl',
+    });
+
+    new cdk.CfnOutput(this, 'ExerciseServiceUrl', {
+      value: this.exerciseServiceUrl,
+      description: 'Exercise Service Load Balancer URL',
+      exportName: 'SpoolExerciseServiceUrl',
+    });
+
+    new cdk.CfnOutput(this, 'ProgressServiceUrl', {
+      value: this.progressServiceUrl,
+      description: 'Progress Service Load Balancer URL',
+      exportName: 'SpoolProgressServiceUrl',
     });
   }
 } 

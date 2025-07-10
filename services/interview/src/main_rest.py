@@ -5,22 +5,24 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastrtc import Stream
 import numpy as np
 import httpx
 from datetime import datetime
 import sys
 import traceback
-from fastrtc import Stream
+import hashlib
+import hmac
+import time
 
-from .voice_agent import VoiceAgent
+from .voice_agent_rest import VoiceAgent
 from .langflow_client import LangflowClient
 from .models import InterviewSession, InterestData
-from .turn_credentials import get_turn_credentials
 
 # Configure Python path
 sys.path.insert(0, '/app/src')
 
-app = FastAPI(title="Spool Interview Service")
+app = FastAPI(title="Spool Interview Service - REST/FastRTC")
 
 # CORS configuration
 app.add_middleware(
@@ -35,7 +37,7 @@ app.add_middleware(
 langflow_client = None
 voice_agent = None
 
-# Store active sessions and RTC streams
+# Store active sessions and streams
 active_sessions: Dict[str, InterviewSession] = {}
 active_streams: Dict[str, Stream] = {}
 
@@ -46,7 +48,7 @@ async def startup_event():
     global langflow_client, voice_agent
     
     try:
-        print("Starting up Spool Interview Service...")
+        print("Starting up Spool Interview Service (REST/FastRTC)...")
         
         # Initialize LangFlow client
         langflow_client = LangflowClient()
@@ -54,7 +56,7 @@ async def startup_event():
         
         # Initialize voice agent
         voice_agent = VoiceAgent()
-        print("Voice agent initialized")
+        print("Voice agent initialized (REST mode)")
         
         # Check Langflow health
         if langflow_client and not await langflow_client.health_check():
@@ -100,12 +102,12 @@ async def health_check():
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "Spool Interview Service is running", "version": "1.0.0"}
+    return {"message": "Spool Interview Service (REST/FastRTC) is running", "version": "2.0.0"}
 
 
 @app.post("/api/interview/start")
 async def start_interview(user_id: str):
-    """Start a new interview session and initialize RTC stream"""
+    """Start a new interview session with REST-based FastRTC"""
     try:
         session_id = f"interview_{user_id}_{datetime.utcnow().timestamp()}"
         
@@ -120,13 +122,14 @@ async def start_interview(user_id: str):
         
         # Create RTC stream for this session
         if voice_agent:
-            stream = await voice_agent.create_interview_stream(
-                session=session,
-                on_interest_detected=lambda interest: handle_interest_detected(session, interest)
+            stream = voice_agent.create_interview_stream(
+                session,
+                on_interest_detected=lambda interest: asyncio.create_task(handle_interest_detected(session, interest))
             )
             active_streams[session_id] = stream
             
             # Mount the stream to create REST endpoints
+            # This creates: /offer, /answer, /ice-candidate endpoints
             stream.mount(app, prefix=f"/api/interview/{session_id}/rtc")
         
         return {
@@ -155,42 +158,71 @@ async def get_interview_status(session_id: str):
     return {
         "session_id": session_id,
         "status": "active" if stream_active else "initialized",
-        "interests_found": len(session.interests),
-        "duration": (datetime.utcnow() - session.started_at).total_seconds(),
+        "started_at": session.started_at.isoformat(),
+        "interests_detected": len(session.interests),
         "greeting": "Hi! I'm here to learn about your interests and hobbies. Let's have a conversation about what you enjoy doing!"
     }
 
 
-@app.get("/api/interview/{session_id}/ice-servers")
-async def get_ice_servers(session_id: str):
-    """Get ICE servers configuration for WebRTC connection"""
-    if session_id not in active_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = active_sessions[session_id]
-    
-    # Generate TURN credentials for this session
-    turn_config = get_turn_credentials(
-        username=session.user_id,
-        session_id=session_id
-    )
-    
-    return turn_config
-
-
 @app.post("/api/interview/{session_id}/transcript")
 async def update_transcript(session_id: str, request: Request):
-    """Update interview transcript (called by voice agent internally)"""
+    """Update transcript data for the session"""
     if session_id not in active_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     
     data = await request.json()
     session = active_sessions[session_id]
     
-    if "entry" in data:
-        session.transcript.append(data["entry"])
+    if data.get("type") == "user_transcript":
+        session.transcript.append({
+            "speaker": "user",
+            "text": data.get("text"),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    elif data.get("type") == "assistant_transcript":
+        session.transcript.append({
+            "speaker": "assistant",
+            "text": data.get("text"),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    elif data.get("type") == "interest_detected":
+        interest = data.get("interest")
+        await handle_interest_detected(session, interest)
     
     return {"status": "updated"}
+
+
+@app.get("/api/interview/{session_id}/ice-servers")
+async def get_ice_servers(session_id: str):
+    """Get ICE servers including TURN credentials"""
+    if session_id not in active_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Generate time-limited TURN credentials
+    turn_secret = os.getenv("TURN_SECRET", "spool-turn-secret-2024")
+    turn_server = os.getenv("TURN_SERVER", "turn.spool.education")
+    
+    # Create time-limited username
+    expiry = int(time.time()) + 3600  # 1 hour from now
+    username = f"{expiry}:spool_{session_id[:8]}"
+    
+    # Generate credential using HMAC-SHA1
+    credential = hmac.new(
+        turn_secret.encode(),
+        username.encode(),
+        hashlib.sha1
+    ).digest().hex()
+    
+    return {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {
+                "urls": [f"turn:{turn_server}:3478"],
+                "username": username,
+                "credential": credential
+            }
+        ]
+    }
 
 
 async def handle_interest_detected(session: InterviewSession, interest: str):
@@ -270,10 +302,9 @@ async def end_interview(session_id: str):
     # Save and process the session
     await save_session_data(session)
     
-    # Clean up RTC stream if exists
+    # Clean up stream if exists
     if session_id in active_streams:
-        stream = active_streams[session_id]
-        # Stream cleanup is handled automatically by FastRTC
+        # Stream cleanup is handled by FastRTC
         del active_streams[session_id]
     
     # Remove from active sessions
@@ -287,5 +318,5 @@ async def end_interview(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting Spool Interview Service...")
-    uvicorn.run(app, host="0.0.0.0", port=8080) 
+    print("Starting Spool Interview Service (REST/FastRTC)...")
+    uvicorn.run(app, host="0.0.0.0", port=8080)
