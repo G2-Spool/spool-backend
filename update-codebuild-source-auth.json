@@ -1,0 +1,11 @@
+{
+  "type": "GITHUB",
+  "location": "https://github.com/G2-Spool/spool-exercise-service",
+  "gitCloneDepth": 1,
+  "reportBuildStatus": true,
+  "auth": {
+    "type": "CODECONNECTIONS",
+    "resource": "arn:aws:codeconnections:us-east-1:560281064968:connection/181bfd6a-5a13-4065-a6e1-6981a86ea629"
+  },
+  "buildspec": "version: 0.2\n\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME\n      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)\n      - IMAGE_TAG=${COMMIT_HASH:=latest}\n  build:\n    commands:\n      - echo Build started on `date`\n      - echo Building the Docker image...\n      - docker build -t $REPOSITORY_URI:latest .\n      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG\n  post_build:\n    commands:\n      - echo Build completed on `date`\n      - echo Pushing the Docker images...\n      - docker push $REPOSITORY_URI:latest\n      - docker push $REPOSITORY_URI:$IMAGE_TAG\n      - echo Writing image definitions file...\n      - printf '[{\"name\":\"%s\",\"imageUri\":\"%s\"}]' $CONTAINER_NAME $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json\nartifacts:\n  files: imagedefinitions.json"
+}

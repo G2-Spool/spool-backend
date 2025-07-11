@@ -1,0 +1,62 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "FullAccessServices",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:*",
+                "ssm:*",
+                "ecs:*",
+                "codebuild:*",
+                "codecommit:*",
+                "codeconnections:*",
+                "codestar-connections:*",
+                "amplify:*",
+                "amplifybackend:*",
+                "iam:*",
+                "logs:*",
+                "apigateway:*",
+                "lambda:*",
+                "rds:*",
+                "bedrock:*",
+                "events:*",
+                "schemas:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2ReadOnly",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:Describe*",
+                "ec2:List*",
+                "ec2:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AssumeRole",
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Resource": "arn:aws:iam::560281064968:role/SpoolAIAssistantRole"
+        },
+        {
+            "Sid": "CognitoAdmin",
+            "Effect": "Allow",
+            "Action": "cognito-idp:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "KMSAccess",
+            "Effect": "Allow",
+            "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

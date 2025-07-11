@@ -1,0 +1,37 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:*",
+                "ssm:*",
+                "ecs:*",
+                "codebuild:*",
+                "codecommit:*",
+                "codeconnections:*",
+                "codestar-connections:*",
+                "amplify:*",
+                "amplifybackend:*",
+                "iam:*",
+                "logs:*",
+                "apigateway:*",
+                "lambda:*",
+                "rds:*",
+                "bedrock:*",
+                "events:*",
+                "schemas:*",
+                "cognito-idp:*",
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:DescribeKey",
+                "ec2:Describe*",
+                "ec2:List*",
+                "ec2:Get*",
+                "sts:AssumeRole"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

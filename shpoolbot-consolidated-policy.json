@@ -1,0 +1,146 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ECRFullAccess",
+            "Effect": "Allow",
+            "Action": "ecr:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "SSMParameterAccess",
+            "Effect": "Allow",
+            "Action": "ssm:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECSManagement",
+            "Effect": "Allow",
+            "Action": "ecs:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "CodeBuildAndCodeCommitAccess",
+            "Effect": "Allow",
+            "Action": [
+                "codebuild:*",
+                "codecommit:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CodeConnectionsAccess",
+            "Effect": "Allow",
+            "Action": [
+                "codeconnections:*",
+                "codestar-connections:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AmplifyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "amplify:*",
+                "amplifybackend:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMManagement",
+            "Effect": "Allow",
+            "Action": "iam:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "LogsAccess",
+            "Effect": "Allow",
+            "Action": "logs:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2ReadOnly",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:Describe*",
+                "ec2:List*",
+                "ec2:Get*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "APIGatewayFullAccess",
+            "Effect": "Allow",
+            "Action": "apigateway:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "LambdaFullAccess",
+            "Effect": "Allow",
+            "Action": "lambda:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "RDSAccess",
+            "Effect": "Allow",
+            "Action": "rds:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "AssumeAIAssistantRole",
+            "Effect": "Allow",
+            "Action": "sts:AssumeRole",
+            "Resource": "arn:aws:iam::560281064968:role/SpoolAIAssistantRole"
+        },
+        {
+            "Sid": "BedrockAccess",
+            "Effect": "Allow",
+            "Action": "bedrock:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "CognitoAccess",
+            "Effect": "Allow",
+            "Action": [
+                "cognito-idp:UpdateUserPoolClient",
+                "cognito-idp:AdminConfirmSignUp",
+                "cognito-idp:AdminUpdateUserAttributes",
+                "cognito-idp:AdminSetUserPassword",
+                "cognito-idp:AdminCreateUser",
+                "cognito-idp:AdminDeleteUser",
+                "cognito-idp:AdminGetUser",
+                "cognito-idp:AdminListGroupsForUser",
+                "cognito-idp:AdminAddUserToGroup",
+                "cognito-idp:AdminRemoveUserFromGroup",
+                "cognito-idp:AdminSetUserMFAPreference",
+                "cognito-idp:AdminResetUserPassword",
+                "cognito-idp:AdminRespondToAuthChallenge",
+                "cognito-idp:ListUsers",
+                "cognito-idp:UpdateUserPool",
+                "cognito-idp:DescribeUserPool",
+                "cognito-idp:DescribeUserPoolClient"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EventBridgeAccess",
+            "Effect": "Allow",
+            "Action": [
+                "events:*",
+                "schemas:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "KMSAccess",
+            "Effect": "Allow",
+            "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
