@@ -1,57 +1,51 @@
 import os
 import asyncio
-from typing import Callable, Optional, Dict
+from typing import Callable, Optional, Dict, List
 import numpy as np
 from fastrtc import Stream, ReplyOnPause, AudioHandler, get_stt_model, get_tts_model
-from langchain.chat_models import init_chat_model
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import json
 import httpx
 from datetime import datetime
 
 from .models import InterviewSession
 from .turn_credentials import get_turn_credentials
+from .langgraph_interview import InterviewGraph, InterviewState
 
 
 class InterviewHandler(AudioHandler):
-    """Custom audio handler for interview conversations"""
+    """Custom audio handler for interview conversations using LangGraph"""
     
     def __init__(
         self,
         session: InterviewSession,
         stt_model,
         tts_model,
-        llm_model,
+        interview_graph: InterviewGraph,
         on_interest_detected: Optional[Callable] = None,
         api_base_url: str = "http://localhost:8080"
     ):
         self.session = session
         self.stt_model = stt_model
         self.tts_model = tts_model
-        self.llm_model = llm_model
+        self.interview_graph = interview_graph
         self.on_interest_detected = on_interest_detected
         self.api_base_url = api_base_url
         
-        # Interview context and prompts
-        self.system_prompt = """You are a friendly interview assistant helping to learn about a student's interests and hobbies.
-        Your goal is to have a natural conversation and discover:
-        1. What interests and hobbies they have
-        2. What they enjoy most about each interest
-        3. How these interests might relate to their learning goals
-        
-        Be conversational, ask follow-up questions, and show genuine interest in their responses.
-        When you identify a clear interest or hobby, mark it with [INTEREST: name] in your response.
-        Keep responses concise and natural for voice conversation."""
-        
-        self.conversation_history = [
-            {"role": "system", "content": self.system_prompt}
-        ]
+        # Initialize conversation history for LangGraph
+        self.conversation_history: List[BaseMessage] = []
     
     async def process(self, audio: tuple[int, np.ndarray]) -> np.ndarray:
-        """Process incoming audio and generate response"""
+        """Process incoming audio and generate response using LangGraph"""
         try:
             # Convert audio to text using STT
             sample_rate, audio_data = audio
             user_text = self.stt_model.stt((sample_rate, audio_data))
+            
+            # Skip empty or very short inputs
+            if not user_text or len(user_text.strip()) < 2:
+                return np.array([], dtype=np.float32)
             
             # Add to transcript
             transcript_entry = {
@@ -64,30 +58,41 @@ class InterviewHandler(AudioHandler):
             # Update transcript via API
             await self._update_transcript(transcript_entry)
             
-            # Add to conversation history
-            self.conversation_history.append({
-                "role": "user",
-                "content": user_text
-            })
+            # Process through LangGraph
+            result = await self.interview_graph.process_message(
+                user_message=user_text,
+                conversation_history=self.conversation_history,
+                mode=self.session.metadata.get("mode"),
+                user_info={
+                    "user_id": self.session.user_id,
+                    "session_id": self.session.session_id
+                }
+            )
             
-            # Get LLM response
-            response = await self.llm_model.ainvoke(self.conversation_history)
-            response_text = response.content
+            # Update conversation history
+            self.conversation_history.append(HumanMessage(content=user_text))
+            if result["response"]:
+                self.conversation_history.append(AIMessage(content=result["response"]))
             
-            # Check for interests in the response
-            interests = self._extract_interests(response_text)
-            for interest in interests:
+            # Handle detected interests
+            for interest in result.get("interests", []):
                 if self.on_interest_detected:
-                    await self.on_interest_detected(interest)
+                    await self.on_interest_detected(interest["name"])
+            
+            # Store concepts in session metadata
+            if result.get("concepts"):
+                if "concepts" not in self.session.metadata:
+                    self.session.metadata["concepts"] = []
+                self.session.metadata["concepts"].extend(result["concepts"])
+            
+            # Check if we should prepare for thread creation
+            if result.get("should_create_thread"):
+                self.session.metadata["prepare_thread"] = True
+                if result.get("thread_summary"):
+                    self.session.metadata["thread_summary"] = result["thread_summary"]
             
             # Clean response for TTS
-            clean_response = self._clean_response_for_tts(response_text)
-            
-            # Add to conversation history
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": response_text
-            })
+            clean_response = self._clean_response_for_tts(result["response"])
             
             # Add to transcript
             assistant_entry = {
@@ -114,27 +119,17 @@ class InterviewHandler(AudioHandler):
                 
         except Exception as e:
             print(f"Error processing audio: {e}")
+            import traceback
+            traceback.print_exc()
             # Return silence on error
             return np.zeros(16000, dtype=np.float32)  # 1 second of silence
-    
-    def _extract_interests(self, text: str) -> list[str]:
-        """Extract interests marked with [INTEREST: name] from text"""
-        interests = []
-        import re
-        
-        pattern = r'\[INTEREST:\s*([^\]]+)\]'
-        matches = re.findall(pattern, text)
-        
-        for match in matches:
-            interest = match.strip()
-            if interest:
-                interests.append(interest)
-        
-        return interests
     
     def _clean_response_for_tts(self, text: str) -> str:
         """Remove markers and clean text for TTS"""
         import re
+        
+        if not text:
+            return ""
         
         # Remove [INTEREST: ...] markers
         text = re.sub(r'\[INTEREST:[^\]]+\]', '', text)
@@ -158,10 +153,18 @@ class InterviewHandler(AudioHandler):
 
 class VoiceAgent:
     def __init__(self):
-        """Initialize the voice agent with STT, TTS, and LLM models"""
+        """Initialize the voice agent with STT, TTS, and LangGraph models"""
         self.stt_model = get_stt_model()  # Moonshine
         self.tts_model = get_tts_model()  # Kokoro
-        self.llm_model = init_chat_model("openai:gpt-4.1-nano-2025-04-14")
+        
+        # Initialize LLM for LangGraph
+        self.llm_model = ChatOpenAI(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-nano-2025-04-14"),
+            temperature=0.7
+        )
+        
+        # Initialize LangGraph interview orchestration
+        self.interview_graph = InterviewGraph(llm_model=self.llm_model)
     
     async def create_interview_stream(
         self,
@@ -175,7 +178,7 @@ class VoiceAgent:
             session=session,
             stt_model=self.stt_model,
             tts_model=self.tts_model,
-            llm_model=self.llm_model,
+            interview_graph=self.interview_graph,
             on_interest_detected=on_interest_detected
         )
         

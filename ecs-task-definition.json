@@ -43,6 +43,14 @@
                 {
                     "name": "PYTHONPATH",
                     "value": "/app"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "us-east-1"
+                },
+                {
+                    "name": "LAMBDA_FUNCTION_NAME",
+                    "value": "spool-create-thread"
                 }
             ],
             "logConfiguration": {
