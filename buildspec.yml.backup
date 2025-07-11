@@ -1,0 +1,93 @@
+version: 0.2
+
+# Environment variables to set in CodeBuild:
+# - AWS_DEFAULT_REGION
+# - AWS_ACCOUNT_ID
+# - ECR_REPOSITORY_INTERVIEW
+# - ECS_CLUSTER_NAME
+# - ECS_SERVICE_INTERVIEW
+# - ECS_SERVICE_LANGFLOW
+# - OPENAI_API_KEY (stored in Parameter Store)
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - echo Logging in to Docker Hub to avoid rate limits...
+      - echo $DOCKERHUB_TOKEN | docker login --username $DOCKERHUB_USERNAME --password-stdin || true
+      - echo Checking for ECR repository...
+      - |
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY_INTERVIEW || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY_INTERVIEW
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_INTERVIEW
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+
+  build:
+    commands:
+      - echo Build started on `date`
+      
+      # Check if infrastructure needs updating (skip if shallow clone)
+      - |
+        if [ -d ".git" ] && git rev-parse HEAD~1 >/dev/null 2>&1; then
+          if [ -n "$(git diff HEAD~1 HEAD --name-only | grep '^infrastructure/')" ]; then
+            echo "Infrastructure changes detected, updating CDK stack..."
+            cd infrastructure/cdk
+            npm install
+            npx cdk deploy SpoolEcsStack --require-approval never
+            cd ../..
+          fi
+        else
+          echo "Skipping infrastructure check (shallow clone or no git history)"
+        fi
+      
+      # Build interview service
+      - echo Building the Docker image for linux/amd64...
+      - cd services/interview
+      - docker build --platform linux/amd64 -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+      - cd ../..
+
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      
+      # Update ECS service with new image
+      # - echo Updating ECS service...
+      # - |
+        # aws ecs update-service \
+          # --cluster $ECS_CLUSTER_NAME \
+          # --service $ECS_SERVICE_INTERVIEW \
+          # --force-new-deployment
+      
+      # Update Langflow service if needed
+      # - |
+        # if [ -n "$(git log -1 --pretty=%B | grep '\[langflow\]')" ]; then
+          # echo "Langflow update requested, restarting service..."
+          # aws ecs update-service \
+            # --cluster $ECS_CLUSTER_NAME \
+            # --service $ECS_SERVICE_LANGFLOW \
+            # --force-new-deployment
+        # fi
+      
+      # Wait for services to stabilize
+      # - echo Waiting for services to stabilize...
+      # - aws ecs wait services-stable --cluster $ECS_CLUSTER_NAME --services $ECS_SERVICE_INTERVIEW
+      
+      # Store build artifacts
+      - echo Writing image definitions file...
+      - printf '[{"name":"interview","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
+    - infrastructure/cdk/cdk.out/**/*
+
+cache:
+  paths:
+    - 'infrastructure/cdk/node_modules/**/*'
+    - 'services/interview/.cache/**/*'
